@@ -2,6 +2,7 @@
  * libirecovery.c
  * Communication to iBoot/iBSS on Apple iOS devices via USB
  *
+ * Copyright (c) 2011-2017 Nikias Bassen
  * Copyright (c) 2012-2015 Martin Szulecki <martin.szulecki@libimobiledevice.org>
  * Copyright (c) 2010 Chronic-Dev Team
  * Copyright (c) 2010 Joshua Hill
@@ -132,6 +133,12 @@ static struct irecv_device irecv_devices[] = {
 	{"iPhone9,2",  "d11ap", 0x0a, 0x8010 },
 	{"iPhone9,3", "d101ap", 0x0c, 0x8010 },
 	{"iPhone9,4", "d111ap", 0x0e, 0x8010 },
+	{"iPhone10,1","d20ap",  0x02, 0x8015 },
+	{"iPhone10,2","d21ap",  0x04, 0x8015 },
+	{"iPhone10,3","d22ap",  0x06, 0x8015 },
+	{"iPhone10,4","d201ap", 0x0a, 0x8015 },
+	{"iPhone10,5","d211ap", 0x0c, 0x8015 },
+	{"iPhone10,6","d221ap", 0x0e, 0x8015 },
 	{"iPod1,1",    "n45ap", 0x02, 0x8900 },
 	{"iPod2,1",    "n72ap", 0x00, 0x8920 },
 	{"iPod3,1",    "n18ap", 0x02, 0x8922 },
@@ -168,10 +175,17 @@ static struct irecv_device irecv_devices[] = {
 	{"iPad6,4",   "j128ap", 0x0a, 0x8001 },
 	{"iPad6,7",   "j98aap", 0x10, 0x8001 },
 	{"iPad6,8",   "j99aap", 0x12, 0x8001 },
+	{"iPad6,11",  "j71sap", 0x10, 0x8000 },
+	{"iPad6,12",  "j72sap", 0x12, 0x8000 },
+	{"iPad7,1",   "j120ap", 0x0C, 0x8011 },
+	{"iPad7,2",   "j121ap", 0x0E, 0x8011 },
+	{"iPad7,3",   "j207ap", 0x04, 0x8011 },
+	{"iPad7,4",   "j208ap", 0x06, 0x8011 },
 	{"AppleTV2,1", "k66ap", 0x10, 0x8930 },
 	{"AppleTV3,1", "j33ap", 0x08, 0x8942 },
 	{"AppleTV3,2","j33iap", 0x00, 0x8947 },
 	{"AppleTV5,3","j42dap", 0x34, 0x7000 },
+	{"AppleTV6,2","j105aap",0x02, 0x8011 },
 	{        NULL,    NULL,   -1,     -1 }
 };
 
@@ -1748,6 +1762,15 @@ IRECV_API irecv_error_t irecv_send_buffer(irecv_client_t client, unsigned char* 
 				dfu_hash_step(h1, buffer[i*packet_size + j]);
 			}
 			if (i+1 == packets) {
+				if (size+16 > packet_size) {
+					bytes = irecv_usb_control_transfer(client, 0x21, 1, i, 0, &buffer[i * packet_size], size, USB_TIMEOUT);
+					if (bytes != size) {
+						return IRECV_E_USB_UPLOAD;
+					}
+					count += size;
+					size = 0;
+				}
+
 				for (j = 0; j < 2; j++) {
 					dfu_hash_step(h1, dfu_xbuf[j*6 + 0]);
 					dfu_hash_step(h1, dfu_xbuf[j*6 + 1]);
@@ -1758,7 +1781,9 @@ IRECV_API irecv_error_t irecv_send_buffer(irecv_client_t client, unsigned char* 
 				}
 
 				char* newbuf = (char*)malloc(size + 16);
-				memcpy(newbuf, &buffer[i * packet_size], size);
+				if (size > 0) {
+					memcpy(newbuf, &buffer[i * packet_size], size);
+				}
 				memcpy(newbuf+size, dfu_xbuf, 12);
 				newbuf[size+12] = h1 & 0xFF;
 				newbuf[size+13] = (h1 >> 8) & 0xFF;
@@ -1787,7 +1812,7 @@ IRECV_API irecv_error_t irecv_send_buffer(irecv_client_t client, unsigned char* 
 		if (!recovery_mode && status != 5) {
 			int retry = 0;
 
-			while (retry < 20) {
+			while (retry++ < 20) {
 				irecv_get_status(client, &status);
 				if (status == 5) {
 					break;
